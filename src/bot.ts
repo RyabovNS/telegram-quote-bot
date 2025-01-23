@@ -1,30 +1,32 @@
 import * as dotenv from 'dotenv';
 import mongoose from 'mongoose';
-import TelegramBot from 'node-telegram-bot-api';
+import { Telegraf } from "telegraf";
+import { commandHandler } from "./commands/commands";
 
 dotenv.config();
+
+const TOKEN = process.env.BOT_TOKEN;
+if (!TOKEN) throw new Error('Чтобы локально запустить бота, нужно создать в папке с проектом создать файл .env, где указать токен бота');
+
+const bot = new Telegraf(TOKEN);
 
 const MONGO_URI = process.env.MONGO_URI;
 if (!MONGO_URI) throw new Error('Нужно указать адрес к базе данных MongoDB');
 
 mongoose
-  // .connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .connect(MONGO_URI)
-  .then(() => console.log('Connected to MongoDB'))
-  .catch((err) => console.error('MongoDB connection error:', err));
+  .connect(MONGO_URI, {
+    // useNewUrlParser: true,
+    // useUnifiedTopology: true,
+  })
+  .then(() => {
+    console.log("MongoDB connected");
+    bot.launch();
+  })
+  .catch((error) => {
+    console.error("MongoDB connection error:", error);
+  });
 
-const quoteSchema = new mongoose.Schema({
-  author: { type: String, required: true },
-  text: { type: String, required: true },
-});
-
-const Quote = mongoose.model('Quote', quoteSchema);
-
-const TOKEN = process.env.BOT_TOKEN;
-if (!TOKEN) throw new Error('Чтобы локально запустить бота, нужно создать в папке с проектом создать файл .env, где указать токен бота');
-
-const bot = new TelegramBot(TOKEN, { polling: true });
-
+commandHandler(bot);
 
 // const quotes = [
 //   'Лежачего полицеdotenv.йского знаешь?\nЯ уложил',
@@ -53,90 +55,3 @@ const bot = new TelegramBot(TOKEN, { polling: true });
 //   'Когда изобрели первый телефон\nу меня уже было два пропущенных',
 //   'Однажды я качал прес под водой, с тех пор её называют пресной',
 // ];
-
-/**
- * Случайная цитата
- */
-bot.onText(/\/quote/, async (msg) => {
-  const chatId = msg.chat.id;
-
-  try {
-    const count = await Quote.countDocuments();
-    if (count === 0) {
-      bot.sendMessage(chatId, 'Цитат пока нет. Добавьте первую с помощью команды /addquote.');
-      return;
-    }
-
-    const randomIndex = Math.floor(Math.random() * count);
-    const randomQuote = await Quote.findOne().skip(randomIndex);
-
-    if (randomQuote) {
-      bot.sendMessage(chatId, `"${randomQuote.text}" — ${randomQuote.author}`);
-    }
-  } catch (error) {
-    console.error('Error fetching quote:', error);
-    bot.sendMessage(chatId, 'Ошибка при получении цитаты.');
-  }
-});
-
-/**
- * Случайная цитата с указанием автора
- */
-bot.onText(/\/quote@(.+)/, async (msg, match) => {
-  const chatId = msg.chat.id;
-
-  if (!match || !match[1]) {
-    bot.sendMessage(chatId, 'Укажите автора после команды. Например: /quote@ИмяАвтора');
-    return;
-  }
-
-  const author = match[1].trim();
-
-  try {
-    const quotesByAuthor = await Quote.find({ author: new RegExp(`^${author}$`, 'i') });
-
-    if (quotesByAuthor.length === 0) {
-      bot.sendMessage(chatId, `Цитаты от автора "${author}" не найдены.`);
-      return;
-    }
-
-    const randomQuote =
-      quotesByAuthor[Math.floor(Math.random() * quotesByAuthor.length)];
-
-    bot.sendMessage(chatId, `"${randomQuote.text}" — ${randomQuote.author}`);
-  } catch (error) {
-    console.error('Error fetching quotes by author:', error);
-    bot.sendMessage(chatId, 'Ошибка при получении цитат.');
-  }
-});
-
-bot.onText(/\/addquote "([^"]+)" "([^"]+)"/, async (msg, match) => {
-  const chatId = msg.chat.id;
-
-  if (!match || match.length < 3) {
-    bot.sendMessage(
-      chatId,
-      `Неправильный формат команды. Используйте:\n/addquote "Автор цитаты" "Текст цитаты"`
-    );
-    return;
-  }
-
-  const author = match[1];
-  const text = match[2];
-
-  
-  try {
-    const newQuote = new Quote({ author, text });
-    await newQuote.save();
-
-    bot.sendMessage(chatId, `Цитата успешно добавлена:\n"${text}" — ${author}`);
-  } catch (error) {
-    console.error('Error saving quote:', error);
-    bot.sendMessage(chatId, 'Ошибка при добавлении цитаты.');
-  }
-});
-
-bot.onText(/\/start/, (msg) => {
-  const chatId = msg.chat.id;
-  bot.sendMessage(chatId, 'Напиши /quote, чтобы получить житейскую мудрость.');
-});
